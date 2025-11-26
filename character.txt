@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高保真粒子重组系统</title>
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background-color: #050505; 
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        /* 纯净背景，突出像素点 */
+        body::before {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
+            z-index: 0;
+        }
+
+        canvas { display: block; position: relative; z-index: 1; }
+
+        /* UI 容器 */
+        #ui-container {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; z-index: 10; width: 100%;
+            pointer-events: none;
+        }
+
+        /* 巨大的上传按钮 */
+        .upload-zone {
+            pointer-events: auto;
+            display: inline-block;
+            border: 2px dashed #00ffff;
+            background: rgba(0, 255, 255, 0.1);
+            padding: 40px 60px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .upload-zone:hover { background: rgba(0, 255, 255, 0.2); box-shadow: 0 0 30px #00ffff; }
+        .upload-text { color: #00ffff; font-size: 24px; font-weight: bold; letter-spacing: 2px; }
+        .upload-sub { color: #888; margin-top: 10px; font-size: 14px; }
+        input[type="file"] { display: none; }
+
+        /* 底部控制栏 */
+        #bottom-bar {
+            position: absolute; bottom: 30px; width: 100%; text-align: center; z-index: 10;
+            pointer-events: none; opacity: 0; transition: opacity 1s;
+        }
+        .btn {
+            pointer-events: auto;
+            background: #222; border: 1px solid #fff; color: #fff;
+            padding: 10px 25px; margin: 0 10px; cursor: pointer;
+            font-size: 14px; border-radius: 30px; text-transform: uppercase;
+        }
+        .btn:hover { background: #fff; color: #000; }
+        .btn-primary { border-color: #00ffff; color: #00ffff; }
+        .btn-primary:hover { background: #00ffff; color: #000; box-shadow: 0 0 20px #00ffff; }
+
+        /* 状态文字 */
+        #status {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            color: #fff; font-size: 18px; text-shadow: 0 0 10px #000; z-index: 10;
+            display: none;
+        }
+
+        /* 摄像头小窗 */
+        #cam-preview {
+            position: absolute; top: 20px; right: 20px; width: 120px; opacity: 0.4;
+            transform: scaleX(-1); border: 1px solid #444; z-index: 5;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+</head>
+<body>
+
+    <div id="status">HANDS DETECTED - FORMING IMAGE</div>
+
+    <!-- 初始上传界面 -->
+    <div id="ui-container">
+        <label class="upload-zone" id="drop-zone">
+            <div class="upload-text">+ UPLOAD PHOTO</div>
+            <div class="upload-sub">Select the girl's photo</div>
+            <input type="file" id="imgInput" accept="image/*">
+        </label>
+    </div>
+
+    <!-- 底部功能栏 (上传后显示) -->
+    <div id="bottom-bar">
+        <button class="btn" onclick="toggleScatter()">Explode / Reset</button>
+        <button class="btn btn-primary" onmousedown="forceSummon(true)" onmouseup="forceSummon(false)">
+            Hold to Summon (Test)
+        </button>
+        <label class="btn">
+            Change Photo <input type="file" id="imgInput2" accept="image/*" style="display:none">
+        </label>
+    </div>
+
+    <video id="cam-preview" playsinline></video>
+
+    <script>
+        // --- 高保真配置 ---
+        const CONFIG = {
+            particleSize: 0.55,     // 粒子更大，填补空隙
+            scanStep: 1,            // 扫描步长：2 = 极高密度 (几乎还原像素)
+            depthStrength: 5.0,     // 深度适中，避免人脸变形
+            lerpSpeed: 0.22,        // 响应速度加快
+            scatterRange: 1000       // 爆炸范围
+        };
+
+        let scene, camera, renderer, particles, geometry;
+        let isSummoning = false;
+        let isImageLoaded = false;
+        
+        let particleSystem = {
+            positions: [], 
+            targets: [],    // 完美复原的位置
+            scatter: [],    // 炸开的位置
+            colors: [],     // 原始真彩
+            count: 0
+        };
+
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
+            camera.position.z = 150; // 视距调整
+
+            renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            animate();
+        }
+
+        // --- 核心算法：生成实心像素粒子 ---
+        function processImage(image) {
+            if (particles) scene.remove(particles);
+
+            const pos = [];
+            const targets = [];
+            const scatter = [];
+            const cols = [];
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 智能缩放：保证粒子数量在性能允许范围内，同时足够清晰
+            const maxDimension = 300; // 300x300 = 90000 像素，step=2 -> ~22500 粒子
+            let w = image.width;
+            let h = image.height;
+            const aspect = w / h;
+
+            if (w > maxDimension || h > maxDimension) {
+                if (aspect > 1) { w = maxDimension; h = maxDimension / aspect; }
+                else { h = maxDimension; w = maxDimension * aspect; }
+            }
+            
+            canvas.width = w; canvas.height = h;
+            ctx.drawImage(image, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h).data;
+
+            // 循环扫描
+            for (let y = 0; y < h; y += CONFIG.scanStep) {
+                for (let x = 0; x < w; x += CONFIG.scanStep) {
+                    const i = (Math.floor(y) * Math.floor(w) + Math.floor(x)) * 4;
+                    const r = imgData[i] / 255;
+                    const g = imgData[i+1] / 255;
+                    const b = imgData[i+2] / 255;
+                    const a = imgData[i+3];
+
+                    if (a > 20) { // 忽略完全透明背景
+                        cols.push(r, g, b);
+
+                        // 3D 坐标计算
+                        // 1. 居中
+                        const tx = (x - w/2);
+                        const ty = -(y - h/2); // Y轴翻转
+                        // 2. 深度：越亮越靠前 (z轴正向)
+                        const bright = (r+g+b)/3;
+                        const tz = bright * CONFIG.depthStrength;
+
+                        targets.push(tx, ty, tz);
+
+                        // 散乱坐标
+                        scatter.push(
+                            (Math.random()-0.5) * CONFIG.scatterRange * 1.5,
+                            (Math.random()-0.5) * CONFIG.scatterRange,
+                            (Math.random()-0.5) * CONFIG.scatterRange
+                        );
+
+                        // 初始位置：设为散乱
+                        pos.push(scatter[scatter.length-3], scatter[scatter.length-2], scatter[scatter.length-1]);
+                    }
+                }
+            }
+
+            particleSystem.count = pos.length / 3;
+            particleSystem.positions = new Float32Array(pos);
+            particleSystem.targets = new Float32Array(targets);
+            particleSystem.scatter = new Float32Array(scatter);
+            particleSystem.colors = new Float32Array(cols);
+
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(particleSystem.positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(particleSystem.colors, 3));
+
+            // --- 材质升级：高清晰度方块 ---
+            // 不再使用圆点贴图，直接用 GL_POINTS 的默认方块渲染，这样拼接起来就像 LED 屏
+            const material = new THREE.PointsMaterial({
+                size: CONFIG.particleSize, 
+                vertexColors: true,
+                transparent: false, // 关闭透明混合，保证实心
+                opacity: 1.0,
+                sizeAttenuation: true,
+                blending: THREE.NormalBlending // 正常混合，不再发白！
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            // UI 切换
+            document.getElementById('ui-container').style.display = 'none';
+            document.getElementById('bottom-bar').style.opacity = '1';
+            document.getElementById('status').style.display = 'block';
+            isImageLoaded = true;
+        }
+
+        // --- 动画循环 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!particles || !isImageLoaded) return;
+
+            const pos = geometry.attributes.position.array;
+            const dest = isSummoning ? particleSystem.targets : particleSystem.scatter;
+            const count = particleSystem.count;
+
+            // 速度优化：当大量粒子时使用简单的线性插值
+            for (let i = 0; i < count; i++) {
+                const idx = i * 3;
+                
+                // 距离判断：如果离得很远，飞快一点；离得近了，慢一点
+                const dx = dest[idx] - pos[idx];
+                const dy = dest[idx+1] - pos[idx+1];
+                const dz = dest[idx+2] - pos[idx+2];
+
+                pos[idx]   += dx * CONFIG.lerpSpeed;
+                pos[idx+1] += dy * CONFIG.lerpSpeed;
+                pos[idx+2] += dz * CONFIG.lerpSpeed;
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            
+            // 视角微动
+            const time = Date.now() * 0.001;
+            if (isSummoning) {
+                // 召唤时：轻微摆动，展示 3D 深度
+                particles.rotation.y = Math.sin(time) * 0.1; 
+                particles.rotation.x = Math.cos(time * 0.8) * 0.05;
+            } else {
+                // 散开时：旋转
+                particles.rotation.y += 0.002;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // --- 交互逻辑 ---
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => processImage(img);
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        document.getElementById('imgInput').addEventListener('change', handleFile);
+        document.getElementById('imgInput2').addEventListener('change', handleFile);
+
+        // 手动测试按钮
+        window.forceSummon = (bool) => {
+            isSummoning = bool;
+            updateStatusText();
+        };
+
+        window.toggleScatter = () => {
+            isSummoning = false;
+            updateStatusText();
+        };
+
+        function updateStatusText() {
+            const el = document.getElementById('status');
+            el.innerText = isSummoning ? "SUMMONING: ACTIVE" : "STATUS: SCATTERED";
+            el.style.color = isSummoning ? "#00ffff" : "#888";
+        }
+
+        // --- AI 手势识别 ---
+        function initAI() {
+            const video = document.getElementById('cam-preview');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.7
+            });
+
+            hands.onResults(results => {
+                if (!isImageLoaded) return;
+                const lm = results.multiHandLandmarks;
+                
+                // 只要检测到双手，就聚合
+                if (lm.length === 2) {
+                    // 计算双手距离
+                    const d = Math.hypot(lm[0][0].x - lm[1][0].x, lm[0][0].y - lm[1][0].y);
+                    
+                    // 只要双手不太远，就判定为召唤
+                    if (d < 0.6) {
+                        isSummoning = true;
+                    } else {
+                        isSummoning = false;
+                    }
+                } else {
+                    isSummoning = false; // 单手或无手时散开
+                }
+                updateStatusText();
+            });
+
+            const cam = new Camera(video, {
+                onFrame: async () => { await hands.send({image: video}); },
+                width: 320, height: 240
+            });
+            cam.start();
+        }
+
+        initThree();
+        initAI();
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
