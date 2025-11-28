@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>高保真粒子重组系统</title>
+    <title>想你的夜</title>
     <style>
+        /* ================= 基础样式 (来自代码 B) ================= */
         body { 
             margin: 0; overflow: hidden; background-color: #050505; 
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Segoe UI', 'Courier New', sans-serif;
         }
 
-        /* 纯净背景，突出像素点 */
         body::before {
             content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
@@ -19,14 +19,55 @@
 
         canvas { display: block; position: relative; z-index: 1; }
 
-        /* UI 容器 */
+        /* ================= 移植：赛博 HUD 摄像头界面 (来自代码 A) ================= */
+        #hud-container {
+            position: fixed; top: 20px; right: 20px; 
+            width: 300px; height: 200px; /* 稍微调小一点以免遮挡太多 */
+            z-index: 20;
+            border: 2px solid #00f3ff;
+            background: rgba(0, 0, 0, 0.8); border-radius: 4px; overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+            transition: all 0.3s;
+        }
+        /* 召唤时的特效 */
+        #hud-container.active {
+            border-color: #ff3366;
+            box-shadow: 0 0 30px rgba(255, 51, 102, 0.5);
+        }
+
+        #input-video {
+            display: block !important; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover; transform: scaleX(-1); z-index: 1; opacity: 0.6;
+        }
+
+        #output-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            transform: scaleX(-1); z-index: 2; pointer-events: none;
+        }
+
+        #hud-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(180deg, transparent 40%, rgba(0, 255, 255, 0.4) 50%, transparent 60%);
+            background-size: 100% 300%;
+            animation: scan 2s linear infinite;
+            pointer-events: none; z-index: 3; mix-blend-mode: overlay;
+        }
+        @keyframes scan { 0% {background-position: 0% -300%;} 100% {background-position: 0% 0%;} }
+
+        #hud-status-text {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            background: rgba(0, 20, 30, 0.9); border-top: 1px solid #00f3ff;
+            color: #00f3ff; font-size: 10px; padding: 4px; text-align: center;
+            letter-spacing: 2px; z-index: 4; font-weight: bold;
+        }
+
+        /* ================= UI 交互元素 (来自代码 B) ================= */
         #ui-container {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             text-align: center; z-index: 10; width: 100%;
             pointer-events: none;
         }
 
-        /* 巨大的上传按钮 */
         .upload-zone {
             pointer-events: auto;
             display: inline-block;
@@ -42,7 +83,6 @@
         .upload-sub { color: #888; margin-top: 10px; font-size: 14px; }
         input[type="file"] { display: none; }
 
-        /* 底部控制栏 */
         #bottom-bar {
             position: absolute; bottom: 30px; width: 100%; text-align: center; z-index: 10;
             pointer-events: none; opacity: 0; transition: opacity 1s;
@@ -57,76 +97,78 @@
         .btn-primary { border-color: #00ffff; color: #00ffff; }
         .btn-primary:hover { background: #00ffff; color: #000; box-shadow: 0 0 20px #00ffff; }
 
-        /* 状态文字 */
         #status {
-            position: absolute; top: 20px; width: 100%; text-align: center;
+            position: absolute; top: 20px; left: 20px; /* 移到左边避免遮挡 HUD */
             color: #fff; font-size: 18px; text-shadow: 0 0 10px #000; z-index: 10;
-            display: none;
-        }
-
-        /* 摄像头小窗 */
-        #cam-preview {
-            position: absolute; top: 20px; right: 20px; width: 120px; opacity: 0.4;
-            transform: scaleX(-1); border: 1px solid #444; z-index: 5;
+            display: none; font-weight: bold; letter-spacing: 1px;
         }
     </style>
+
+    <!-- 核心库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- 移植：使用 Holistic 库以支持面部和全身绘制 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
 </head>
 <body>
 
     <div id="status">HANDS DETECTED - FORMING IMAGE</div>
 
-    <!-- 初始上传界面 -->
+    <!-- 移植：HUD 容器 -->
+    <div id="hud-container">
+        <video id="input-video" playsinline autoplay></video>
+        <canvas id="output-canvas"></canvas>
+        <div id="hud-overlay"></div>
+        <div id="hud-status-text">SYSTEM INITIALIZING...</div>
+    </div>
+
+    <!-- 初始上传界面 (代码 B) -->
     <div id="ui-container">
         <label class="upload-zone" id="drop-zone">
             <div class="upload-text">+ UPLOAD PHOTO</div>
-            <div class="upload-sub">Select the girl's photo</div>
+            <div class="upload-sub">Select Image to Reassemble</div>
             <input type="file" id="imgInput" accept="image/*">
         </label>
     </div>
 
-    <!-- 底部功能栏 (上传后显示) -->
+    <!-- 底部功能栏 (代码 B) -->
     <div id="bottom-bar">
         <button class="btn" onclick="toggleScatter()">Explode / Reset</button>
         <button class="btn btn-primary" onmousedown="forceSummon(true)" onmouseup="forceSummon(false)">
-            Hold to Summon (Test)
+            Hold to Summon
         </button>
         <label class="btn">
             Change Photo <input type="file" id="imgInput2" accept="image/*" style="display:none">
         </label>
     </div>
 
-    <video id="cam-preview" playsinline></video>
-
     <script>
-        // --- 高保真配置 ---
+        // ==========================================
+        // 第一部分：Three.js 粒子系统 (完全保留代码 B)
+        // ==========================================
+        
         const CONFIG = {
-            particleSize: 0.55,     // 粒子更大，填补空隙
-            scanStep: 1,            // 扫描步长：2 = 极高密度 (几乎还原像素)
-            depthStrength: 5.0,     // 深度适中，避免人脸变形
-            lerpSpeed: 0.22,        // 响应速度加快
-            scatterRange: 1000       // 爆炸范围
+            particleSize: 0.55,     // 高保真实心粒子
+            scanStep: 1,            // 高精度扫描
+            depthStrength: 5.0,     // 适度深度
+            lerpSpeed: 0.22,        // 响应速度
+            scatterRange: 1000      // 爆炸范围
         };
 
         let scene, camera, renderer, particles, geometry;
         let isSummoning = false;
         let isImageLoaded = false;
-        
+      
         let particleSystem = {
-            positions: [], 
-            targets: [],    // 完美复原的位置
-            scatter: [],    // 炸开的位置
-            colors: [],     // 原始真彩
-            count: 0
+            positions: [], targets: [], scatter: [], colors: [], count: 0
         };
 
         function initThree() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
-            camera.position.z = 150; // 视距调整
+            camera.position.z = 150;
 
             renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -136,7 +178,6 @@
             animate();
         }
 
-        // --- 核心算法：生成实心像素粒子 ---
         function processImage(image) {
             if (particles) scene.remove(particles);
 
@@ -147,9 +188,7 @@
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            
-            // 智能缩放：保证粒子数量在性能允许范围内，同时足够清晰
-            const maxDimension = 300; // 300x300 = 90000 像素，step=2 -> ~22500 粒子
+            const maxDimension = 300; 
             let w = image.width;
             let h = image.height;
             const aspect = w / h;
@@ -158,12 +197,11 @@
                 if (aspect > 1) { w = maxDimension; h = maxDimension / aspect; }
                 else { h = maxDimension; w = maxDimension * aspect; }
             }
-            
+          
             canvas.width = w; canvas.height = h;
             ctx.drawImage(image, 0, 0, w, h);
             const imgData = ctx.getImageData(0, 0, w, h).data;
 
-            // 循环扫描
             for (let y = 0; y < h; y += CONFIG.scanStep) {
                 for (let x = 0; x < w; x += CONFIG.scanStep) {
                     const i = (Math.floor(y) * Math.floor(w) + Math.floor(x)) * 4;
@@ -172,27 +210,19 @@
                     const b = imgData[i+2] / 255;
                     const a = imgData[i+3];
 
-                    if (a > 20) { // 忽略完全透明背景
+                    if (a > 20) {
                         cols.push(r, g, b);
-
-                        // 3D 坐标计算
-                        // 1. 居中
                         const tx = (x - w/2);
-                        const ty = -(y - h/2); // Y轴翻转
-                        // 2. 深度：越亮越靠前 (z轴正向)
+                        const ty = -(y - h/2);
                         const bright = (r+g+b)/3;
                         const tz = bright * CONFIG.depthStrength;
 
                         targets.push(tx, ty, tz);
-
-                        // 散乱坐标
                         scatter.push(
                             (Math.random()-0.5) * CONFIG.scatterRange * 1.5,
                             (Math.random()-0.5) * CONFIG.scatterRange,
                             (Math.random()-0.5) * CONFIG.scatterRange
                         );
-
-                        // 初始位置：设为散乱
                         pos.push(scatter[scatter.length-3], scatter[scatter.length-2], scatter[scatter.length-1]);
                     }
                 }
@@ -208,68 +238,55 @@
             geometry.setAttribute('position', new THREE.BufferAttribute(particleSystem.positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(particleSystem.colors, 3));
 
-            // --- 材质升级：高清晰度方块 ---
-            // 不再使用圆点贴图，直接用 GL_POINTS 的默认方块渲染，这样拼接起来就像 LED 屏
             const material = new THREE.PointsMaterial({
                 size: CONFIG.particleSize, 
                 vertexColors: true,
-                transparent: false, // 关闭透明混合，保证实心
+                transparent: false, 
                 opacity: 1.0,
                 sizeAttenuation: true,
-                blending: THREE.NormalBlending // 正常混合，不再发白！
+                blending: THREE.NormalBlending 
             });
 
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
-            // UI 切换
             document.getElementById('ui-container').style.display = 'none';
             document.getElementById('bottom-bar').style.opacity = '1';
             document.getElementById('status').style.display = 'block';
             isImageLoaded = true;
         }
 
-        // --- 动画循环 ---
         function animate() {
             requestAnimationFrame(animate);
-
             if (!particles || !isImageLoaded) return;
 
             const pos = geometry.attributes.position.array;
             const dest = isSummoning ? particleSystem.targets : particleSystem.scatter;
             const count = particleSystem.count;
 
-            // 速度优化：当大量粒子时使用简单的线性插值
             for (let i = 0; i < count; i++) {
                 const idx = i * 3;
-                
-                // 距离判断：如果离得很远，飞快一点；离得近了，慢一点
-                const dx = dest[idx] - pos[idx];
-                const dy = dest[idx+1] - pos[idx+1];
-                const dz = dest[idx+2] - pos[idx+2];
-
-                pos[idx]   += dx * CONFIG.lerpSpeed;
-                pos[idx+1] += dy * CONFIG.lerpSpeed;
-                pos[idx+2] += dz * CONFIG.lerpSpeed;
+                pos[idx]   += (dest[idx] - pos[idx]) * CONFIG.lerpSpeed;
+                pos[idx+1] += (dest[idx+1] - pos[idx+1]) * CONFIG.lerpSpeed;
+                pos[idx+2] += (dest[idx+2] - pos[idx+2]) * CONFIG.lerpSpeed;
             }
 
             geometry.attributes.position.needsUpdate = true;
             
-            // 视角微动
             const time = Date.now() * 0.001;
             if (isSummoning) {
-                // 召唤时：轻微摆动，展示 3D 深度
                 particles.rotation.y = Math.sin(time) * 0.1; 
                 particles.rotation.x = Math.cos(time * 0.8) * 0.05;
             } else {
-                // 散开时：旋转
                 particles.rotation.y += 0.002;
             }
-
             renderer.render(scene, camera);
         }
 
-        // --- 交互逻辑 ---
+        // ==========================================
+        // 第二部分：交互与事件 (代码 B 逻辑)
+        // ==========================================
+
         function handleFile(e) {
             const file = e.target.files[0];
             if(!file) return;
@@ -285,71 +302,108 @@
         document.getElementById('imgInput').addEventListener('change', handleFile);
         document.getElementById('imgInput2').addEventListener('change', handleFile);
 
-        // 手动测试按钮
-        window.forceSummon = (bool) => {
-            isSummoning = bool;
-            updateStatusText();
-        };
-
-        window.toggleScatter = () => {
-            isSummoning = false;
-            updateStatusText();
-        };
+        window.forceSummon = (bool) => { isSummoning = bool; updateStatusText(); };
+        window.toggleScatter = () => { isSummoning = false; updateStatusText(); };
 
         function updateStatusText() {
             const el = document.getElementById('status');
-            el.innerText = isSummoning ? "SUMMONING: ACTIVE" : "STATUS: SCATTERED";
-            el.style.color = isSummoning ? "#00ffff" : "#888";
+            const hudText = document.getElementById('hud-status-text');
+            const hudBox = document.getElementById('hud-container');
+
+            if (isSummoning) {
+                el.innerText = ">>> SUMMONING ACTIVE <<<";
+                el.style.color = "#00ffff";
+                hudText.innerText = "TARGET LOCKED | REASSEMBLING...";
+                hudText.style.color = "#ff3366";
+                hudBox.classList.add("active");
+            } else {
+                el.innerText = "STATUS: SCATTERED";
+                el.style.color = "#888";
+                hudText.innerText = "SCANNING FOR GESTURES...";
+                hudText.style.color = "#00f3ff";
+                hudBox.classList.remove("active");
+            }
         }
 
-        // --- AI 手势识别 ---
-        function initAI() {
-            const video = document.getElementById('cam-preview');
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            
-            hands.setOptions({
-                maxNumHands: 2,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.7,
-                minTrackingConfidence: 0.7
-            });
+        // ==========================================
+        // 第三部分：AI 视觉系统 (移植自代码 A)
+        // ==========================================
+        
+        const videoEl = document.getElementById('input-video');
+        const canvasEl = document.getElementById('output-canvas');
+        const ctxEl = canvasEl.getContext('2d');
 
-            hands.onResults(results => {
-                if (!isImageLoaded) return;
-                const lm = results.multiHandLandmarks;
+        function onResults(results) {
+            // 1. 绘制 HUD (来自代码 A 的视觉效果)
+            canvasEl.width = videoEl.videoWidth; 
+            canvasEl.height = videoEl.videoHeight;
+            ctxEl.save();
+            ctxEl.clearRect(0, 0, canvasEl.width, canvasEl.height);
+          
+            const lineStyle = {color: '#00f3ff', lineWidth: 2};
+            const faceStyle = {color: 'rgba(0, 243, 255, 0.1)', lineWidth: 1};
+            const handStyle = {color: '#ff3366', lineWidth: 2};
+
+            // 绘制面部网格、姿态连线、手部连线
+            drawConnectors(ctxEl, results.faceLandmarks, FACEMESH_TESSELATION, faceStyle);
+            drawConnectors(ctxEl, results.poseLandmarks, POSE_CONNECTIONS, lineStyle);
+            drawConnectors(ctxEl, results.leftHandLandmarks, HAND_CONNECTIONS, handStyle);
+            drawConnectors(ctxEl, results.rightHandLandmarks, HAND_CONNECTIONS, handStyle);
+            ctxEl.restore();
+
+            // 2. 逻辑判断 (将代码 B 的手势逻辑应用到代码 A 的数据结构上)
+            if (!isImageLoaded) return;
+
+            // 检测是否有两只手
+            if (results.leftHandLandmarks && results.rightHandLandmarks) {
+                // 计算两手拇指尖的距离 (索引 4)
+                const lx = results.leftHandLandmarks[4].x;
+                const ly = results.leftHandLandmarks[4].y;
+                const rx = results.rightHandLandmarks[4].x;
+                const ry = results.rightHandLandmarks[4].y;
                 
-                // 只要检测到双手，就聚合
-                if (lm.length === 2) {
-                    // 计算双手距离
-                    const d = Math.hypot(lm[0][0].x - lm[1][0].x, lm[0][0].y - lm[1][0].y);
-                    
-                    // 只要双手不太远，就判定为召唤
-                    if (d < 0.6) {
-                        isSummoning = true;
-                    } else {
-                        isSummoning = false;
-                    }
-                } else {
-                    isSummoning = false; // 单手或无手时散开
-                }
-                updateStatusText();
-            });
+                const dist = Math.hypot(lx - rx, ly - ry);
 
-            const cam = new Camera(video, {
-                onFrame: async () => { await hands.send({image: video}); },
-                width: 320, height: 240
-            });
-            cam.start();
+                // 阈值判断 (MediaPipe 坐标是归一化的 0-1)
+                if (dist < 0.2) {
+                    isSummoning = true;
+                } else {
+                    isSummoning = false;
+                }
+            } else {
+                // 单手或无手 -> 散开
+                isSummoning = false;
+            }
+            updateStatusText();
         }
 
-        initThree();
-        initAI();
+        // 初始化 Holistic 模型 (比单纯的 Hands 模型更酷，带面部网格)
+        const holistic = new Holistic({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`});
+        holistic.setOptions({
+            modelComplexity: 1, 
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.6, 
+            minTrackingConfidence: 0.6
+        });
+        holistic.onResults(onResults);
+
+        const cameraAI = new Camera(videoEl, {
+            onFrame: async () => { await holistic.send({image: videoEl}); },
+            width: 480, height: 360 // 降低一点分辨率以提高性能
+        });
+        
+        // 启动
+        cameraAI.start().then(() => {
+            document.getElementById('hud-status-text').innerText = "OPTICAL SENSORS ONLINE";
+        });
+
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+        initThree();
     </script>
 </body>
 </html>
