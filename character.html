@@ -2,13 +2,15 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>想你的夜</title>
+    <!-- 添加 user-scalable=no 防止手机双击缩放 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>高保真粒子重组系统 // 移动适配版</title>
     <style>
-        /* ================= 基础样式 (来自代码 B) ================= */
+        /* ================= 基础样式 ================= */
         body { 
             margin: 0; overflow: hidden; background-color: #050505; 
             font-family: 'Segoe UI', 'Courier New', sans-serif;
+            -webkit-tap-highlight-color: transparent; /* 移除手机点击高亮 */
         }
 
         body::before {
@@ -19,17 +21,18 @@
 
         canvas { display: block; position: relative; z-index: 1; }
 
-        /* ================= 移植：赛博 HUD 摄像头界面 (来自代码 A) ================= */
+        /* ================= HUD 摄像头界面 (适配手机) ================= */
         #hud-container {
             position: fixed; top: 20px; right: 20px; 
-            width: 300px; height: 200px; /* 稍微调小一点以免遮挡太多 */
+            width: 280px; height: 160px;
             z-index: 20;
             border: 2px solid #00f3ff;
             background: rgba(0, 0, 0, 0.8); border-radius: 4px; overflow: hidden;
             box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
             transition: all 0.3s;
+            pointer-events: none; /* 让点击穿透，不挡操作 */
         }
-        /* 召唤时的特效 */
+        
         #hud-container.active {
             border-color: #ff3366;
             box-shadow: 0 0 30px rgba(255, 51, 102, 0.5);
@@ -61,10 +64,10 @@
             letter-spacing: 2px; z-index: 4; font-weight: bold;
         }
 
-        /* ================= UI 交互元素 (来自代码 B) ================= */
+        /* ================= UI 交互元素 ================= */
         #ui-container {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            text-align: center; z-index: 10; width: 100%;
+            text-align: center; z-index: 10; width: 90%; /* 手机适配宽度 */
             pointer-events: none;
         }
 
@@ -73,40 +76,60 @@
             display: inline-block;
             border: 2px dashed #00ffff;
             background: rgba(0, 255, 255, 0.1);
-            padding: 40px 60px;
+            padding: 40px 20px; width: 100%; max-width: 300px;
             border-radius: 20px;
             cursor: pointer;
             transition: 0.3s;
+            box-sizing: border-box;
         }
-        .upload-zone:hover { background: rgba(0, 255, 255, 0.2); box-shadow: 0 0 30px #00ffff; }
-        .upload-text { color: #00ffff; font-size: 24px; font-weight: bold; letter-spacing: 2px; }
-        .upload-sub { color: #888; margin-top: 10px; font-size: 14px; }
+        .upload-zone:active, .upload-zone:hover { background: rgba(0, 255, 255, 0.2); box-shadow: 0 0 30px #00ffff; }
+        .upload-text { color: #00ffff; font-size: 20px; font-weight: bold; letter-spacing: 2px; }
+        .upload-sub { color: #888; margin-top: 10px; font-size: 12px; }
         input[type="file"] { display: none; }
 
         #bottom-bar {
-            position: absolute; bottom: 30px; width: 100%; text-align: center; z-index: 10;
-            pointer-events: none; opacity: 0; transition: opacity 1s;
+            position: absolute; bottom: 30px; width: 100%; 
+            display: flex; justify-content: center; flex-wrap: wrap; gap: 10px;
+            z-index: 10; pointer-events: none; opacity: 0; transition: opacity 1s;
         }
         .btn {
             pointer-events: auto;
             background: #222; border: 1px solid #fff; color: #fff;
-            padding: 10px 25px; margin: 0 10px; cursor: pointer;
+            padding: 12px 20px; cursor: pointer;
             font-size: 14px; border-radius: 30px; text-transform: uppercase;
+            user-select: none;
         }
-        .btn:hover { background: #fff; color: #000; }
+        .btn:active, .btn:hover { background: #fff; color: #000; }
         .btn-primary { border-color: #00ffff; color: #00ffff; }
-        .btn-primary:hover { background: #00ffff; color: #000; box-shadow: 0 0 20px #00ffff; }
+        .btn-primary:active, .btn-primary:hover { background: #00ffff; color: #000; box-shadow: 0 0 20px #00ffff; }
 
         #status {
-            position: absolute; top: 20px; left: 20px; /* 移到左边避免遮挡 HUD */
+            position: absolute; top: 20px; left: 20px;
             color: #fff; font-size: 18px; text-shadow: 0 0 10px #000; z-index: 10;
             display: none; font-weight: bold; letter-spacing: 1px;
         }
+
+        /* ====== 核心：手机端响应式布局 ====== */
+        @media (max-width: 600px) {
+            /* 手机屏幕下，HUD 变小并移到角落，避免遮挡 */
+            #hud-container {
+                width: 120px; height: 90px;
+                top: auto; bottom: 100px; right: 10px;
+                border-width: 1px;
+            }
+            #hud-status-text { font-size: 8px; padding: 2px; }
+            
+            /* 状态文字变小 */
+            #status { font-size: 14px; top: 15px; left: 15px; }
+            
+            /* 按钮适配 */
+            .btn { padding: 10px 15px; font-size: 12px; }
+            #bottom-bar { bottom: 20px; padding: 0 10px; box-sizing: border-box; }
+        }
     </style>
 
-    <!-- 核心库 -->
+    <!-- 库文件 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- 移植：使用 Holistic 库以支持面部和全身绘制 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -116,15 +139,15 @@
 
     <div id="status">HANDS DETECTED - FORMING IMAGE</div>
 
-    <!-- 移植：HUD 容器 -->
+    <!-- HUD 容器 -->
     <div id="hud-container">
-        <video id="input-video" playsinline autoplay></video>
+        <video id="input-video" playsinline autoplay muted></video>
         <canvas id="output-canvas"></canvas>
         <div id="hud-overlay"></div>
         <div id="hud-status-text">SYSTEM INITIALIZING...</div>
     </div>
 
-    <!-- 初始上传界面 (代码 B) -->
+    <!-- 上传界面 -->
     <div id="ui-container">
         <label class="upload-zone" id="drop-zone">
             <div class="upload-text">+ UPLOAD PHOTO</div>
@@ -133,10 +156,13 @@
         </label>
     </div>
 
-    <!-- 底部功能栏 (代码 B) -->
+    <!-- 底部功能栏 (添加了触摸事件) -->
     <div id="bottom-bar">
         <button class="btn" onclick="toggleScatter()">Explode / Reset</button>
-        <button class="btn btn-primary" onmousedown="forceSummon(true)" onmouseup="forceSummon(false)">
+        <!-- 同时支持鼠标和触摸 -->
+        <button class="btn btn-primary" 
+                onmousedown="forceSummon(true)" onmouseup="forceSummon(false)"
+                ontouchstart="forceSummon(true)" ontouchend="forceSummon(false)">
             Hold to Summon
         </button>
         <label class="btn">
@@ -145,16 +171,20 @@
     </div>
 
     <script>
+        // 检测移动设备
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 800;
+
         // ==========================================
-        // 第一部分：Three.js 粒子系统 (完全保留代码 B)
+        // 1. Three.js 粒子系统 (动态配置)
         // ==========================================
         
         const CONFIG = {
-            particleSize: 0.55,     // 高保真实心粒子
-            scanStep: 1,            // 高精度扫描
-            depthStrength: 5.0,     // 适度深度
-            lerpSpeed: 0.22,        // 响应速度
-            scatterRange: 1000      // 爆炸范围
+            // 手机端：粒子变大，采样步长变大(粒子数变少)，保证流畅
+            particleSize: isMobile ? 1.8 : 0.55,     
+            scanStep: isMobile ? 3 : 1,             
+            depthStrength: 5.0,     
+            lerpSpeed: 0.22,        
+            scatterRange: 1000      
         };
 
         let scene, camera, renderer, particles, geometry;
@@ -170,9 +200,9 @@
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
             camera.position.z = 150;
 
-            renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+            renderer = new THREE.WebGLRenderer({antialias: !isMobile, alpha: true}); // 手机端关闭抗锯齿提升性能
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制最高像素比
             document.body.appendChild(renderer.domElement);
 
             animate();
@@ -188,7 +218,9 @@
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const maxDimension = 300; 
+            // 手机端限制最大处理尺寸，防止内存溢出
+            const maxDimension = isMobile ? 150 : 300; 
+            
             let w = image.width;
             let h = image.height;
             const aspect = w / h;
@@ -284,7 +316,7 @@
         }
 
         // ==========================================
-        // 第二部分：交互与事件 (代码 B 逻辑)
+        // 2. 交互与事件 (添加触摸兼容)
         // ==========================================
 
         function handleFile(e) {
@@ -302,7 +334,12 @@
         document.getElementById('imgInput').addEventListener('change', handleFile);
         document.getElementById('imgInput2').addEventListener('change', handleFile);
 
-        window.forceSummon = (bool) => { isSummoning = bool; updateStatusText(); };
+        // 防止触摸事件触发默认菜单
+        window.forceSummon = (bool) => { 
+            if(event) event.preventDefault(); 
+            isSummoning = bool; 
+            updateStatusText(); 
+        };
         window.toggleScatter = () => { isSummoning = false; updateStatusText(); };
 
         function updateStatusText() {
@@ -326,7 +363,7 @@
         }
 
         // ==========================================
-        // 第三部分：AI 视觉系统 (移植自代码 A)
+        // 3. AI 视觉系统 (手机性能优化)
         // ==========================================
         
         const videoEl = document.getElementById('input-video');
@@ -334,7 +371,6 @@
         const ctxEl = canvasEl.getContext('2d');
 
         function onResults(results) {
-            // 1. 绘制 HUD (来自代码 A 的视觉效果)
             canvasEl.width = videoEl.videoWidth; 
             canvasEl.height = videoEl.videoHeight;
             ctxEl.save();
@@ -344,19 +380,16 @@
             const faceStyle = {color: 'rgba(0, 243, 255, 0.1)', lineWidth: 1};
             const handStyle = {color: '#ff3366', lineWidth: 2};
 
-            // 绘制面部网格、姿态连线、手部连线
+            // 仅在 HUD 可见时绘制，节省性能
             drawConnectors(ctxEl, results.faceLandmarks, FACEMESH_TESSELATION, faceStyle);
             drawConnectors(ctxEl, results.poseLandmarks, POSE_CONNECTIONS, lineStyle);
             drawConnectors(ctxEl, results.leftHandLandmarks, HAND_CONNECTIONS, handStyle);
             drawConnectors(ctxEl, results.rightHandLandmarks, HAND_CONNECTIONS, handStyle);
             ctxEl.restore();
 
-            // 2. 逻辑判断 (将代码 B 的手势逻辑应用到代码 A 的数据结构上)
             if (!isImageLoaded) return;
 
-            // 检测是否有两只手
             if (results.leftHandLandmarks && results.rightHandLandmarks) {
-                // 计算两手拇指尖的距离 (索引 4)
                 const lx = results.leftHandLandmarks[4].x;
                 const ly = results.leftHandLandmarks[4].y;
                 const rx = results.rightHandLandmarks[4].x;
@@ -364,23 +397,20 @@
                 
                 const dist = Math.hypot(lx - rx, ly - ry);
 
-                // 阈值判断 (MediaPipe 坐标是归一化的 0-1)
                 if (dist < 0.2) {
                     isSummoning = true;
                 } else {
                     isSummoning = false;
                 }
             } else {
-                // 单手或无手 -> 散开
                 isSummoning = false;
             }
             updateStatusText();
         }
 
-        // 初始化 Holistic 模型 (比单纯的 Hands 模型更酷，带面部网格)
         const holistic = new Holistic({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`});
         holistic.setOptions({
-            modelComplexity: 1, 
+            modelComplexity: isMobile ? 0 : 1,  // 手机端使用轻量模型 (Lite=0)
             smoothLandmarks: true,
             minDetectionConfidence: 0.6, 
             minTrackingConfidence: 0.6
@@ -389,12 +419,15 @@
 
         const cameraAI = new Camera(videoEl, {
             onFrame: async () => { await holistic.send({image: videoEl}); },
-            width: 480, height: 360 // 降低一点分辨率以提高性能
+            width: isMobile ? 320 : 480, // 手机端降低分辨率
+            height: isMobile ? 240 : 360
         });
         
-        // 启动
         cameraAI.start().then(() => {
             document.getElementById('hud-status-text').innerText = "OPTICAL SENSORS ONLINE";
+        }).catch(err => {
+            console.error(err);
+            document.getElementById('hud-status-text').innerText = "CAMERA ERROR";
         });
 
         window.addEventListener('resize', () => {
